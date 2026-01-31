@@ -1,6 +1,12 @@
 from dataclasses import dataclass, field
 from random import choice, choices
 from typing import Union, Iterable
+from enum import IntEnum
+
+
+class Axis(IntEnum):
+    Y = 0
+    X = 1
 
 @dataclass(frozen=True)
 class ChoiceSet:
@@ -49,4 +55,45 @@ if __name__ == '__main__':
             "Вниз": 0.15}
     )
 
-    print(directions.choose(exclude=["Вперёд", "Вправо", "Влево", "Вниз", "Вверх"]))
+    length: int = 8
+    width: int = 5
+
+    pos = [0, int(width / 2)]
+
+    while True :
+        print(f"Координаты: Y = {pos[Axis.Y]}, X = {pos[Axis.X]}")
+
+        if pos[Axis.Y] == length - 1 :
+            print("Ты победил!")
+            break
+
+        banned_directions = []
+        if pos[Axis.Y] - 1 < 0 : banned_directions.append("Назад")
+        if pos[Axis.X] - 1 < 0 : banned_directions.append("Влево")
+        if pos[Axis.X] + 1 > width - 1 : banned_directions.append("Вправо")
+
+        print("Выберите действие (Enter - продолжить, 0 - пойти вперёд, 1 - заново, 2 - завершить)")
+        action = input()
+
+        if action == "0" :
+            print(f"Направление: Вперёд")
+            pos[Axis.Y] += 1
+            continue
+
+        if action == "1" :
+            pos = [0, int(width / 2)]
+            print("Начинаем сначала...")
+            print()
+            continue
+
+        if action == "2" :
+            print("Завершаем программу...")
+            exit()
+
+        direction = directions.choose(banned_directions)
+        print(f"Направление: {direction}")
+
+        if direction == "Вперёд" : pos[Axis.Y] += 1
+        if direction == "Назад": pos[Axis.Y] -= 1
+        if direction == "Влево": pos[Axis.X] -= 1
+        if direction == "Вправо": pos[Axis.X] += 1
