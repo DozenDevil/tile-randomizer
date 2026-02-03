@@ -155,13 +155,12 @@ if __name__ == '__main__':
         if pos[Axis.X] - 1 < 0 : banned_directions.append("Влево")
         if pos[Axis.X] + 1 > width - 1 : banned_directions.append("Вправо")
 
-        print("Выберите действие (Enter - продолжить, 0 - пойти вперёд, 1 - заново, 2 - завершить)")
+        print("Выберите действие (Enter - пойти в случайную сторону, 0 - пойти вперёд, 1 - заново, 2 - завершить)")
         action = input()
 
+        direction = ""
         if action == "0" :
-            print(f"Направление: Вперёд")
-            pos[Axis.Y] += 1
-            continue
+            direction = "Вперёд"
 
         if action == "1" :
             pos = [0, int(width / 2)]
@@ -174,7 +173,9 @@ if __name__ == '__main__':
             print("Завершаем программу...")
             exit()
 
-        direction = directions.choose(banned_directions)
+        if action != "0":
+            direction = directions.choose(banned_directions)
+
         print(f"Направление: {direction}")
 
         if direction == "Вперёд" : pos[Axis.Y] += 1
