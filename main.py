@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from random import choice, choices
 from typing import Union, Iterable
 from enum import IntEnum
+import tomllib
 
 
 class Axis(IntEnum):
@@ -63,6 +64,42 @@ class ChoiceSet:
 
         raise TypeError(f"Неподдерживаемый тип данных [{self.title}]")
 
+def read_config():
+    config_name = "config.toml"
+    with open(config_name, "rb") as f:
+        config = tomllib.load(f)
+
+        length = config["field"]["length"]
+        width = config["field"]["width"]
+
+        if length <= 0 or width <= 0:
+            raise ValueError(f"Размеры поля не соответствуют требованиям! (length = {length}, width = {width})")
+
+        directions_data = {
+            "Вперёд": config["direction_probabilities"]["forward"],
+            "Назад": config["direction_probabilities"]["backward"],
+            "Влево": config["direction_probabilities"]["leftward"],
+            "Вправо": config["direction_probabilities"]["rightward"],
+            "Вверх": config["direction_probabilities"]["upward"],
+            "Вниз": config["direction_probabilities"]["downward"]
+        }
+
+        useful_title = config["useful_trait"]["title"]
+        useful_data = [
+            config["useful_trait"]["truth"],
+            config["useful_trait"]["lies"],
+            config["useful_trait"]["repeat"]
+        ]
+
+        useless_titles = config["useless_traits"]["titles"]
+        useless_data = config["useless_traits"]["data"]
+
+        if len(useless_titles) != len(useless_data):
+            raise ValueError(f"Кол-во заголовков и наборов данных для бесполезных признаков не одинаково! "
+                             f"({len(useless_titles)} в заголовках и {len(useless_data)} в признаках)")
+
+    return length, width, directions_data, useful_title, useful_data, useless_titles, useless_data
+
 def determine_honesty(current_head: str, previous_head: str):
     head_type = previous_head if current_head == "Повтор" else current_head
     return True if head_type == "Ложь" else False
@@ -101,45 +138,33 @@ def print_head_text(head_type: str, previous_head_type: str, straight_direction:
     print()
 
 if __name__ == '__main__':
-    directions = ChoiceSet(
-        title="Направление движения",
-        data={
-            "Вперёд": 0.3,
-            "Назад": 0.1,
-            "Влево": 0.15,
-            "Вправо": 0.15,
-            "Вверх": 0.15,
-            "Вниз": 0.15}
-    )
-
     heads = ChoiceSet(
         title="Головы",
         data=["Правда", "Ложь", "Повтор"]
     )
 
-    useful_trait = ChoiceSet(
-        title="Рога",
-        data=["прямые", "закрученные", "короткие"]
+    length: int
+    width: int
+
+    length, width, directions_data, useful_title, useful_data, useless_titles, useless_data = read_config()
+
+    print(f"Размер поля: {length}x{width}\n")
+
+    pos = [0, int(width / 2)]
+
+    directions = ChoiceSet(
+        title="Направление движения",
+        data=directions_data
     )
 
-    useless_traits = [
-        ChoiceSet(
-            title="Цвет шерсти",
-            data=["коричневый", "белый", "серый", "чёрный"]
-        ),
-        ChoiceSet(
-            title="Цвет глаз",
-            data=["жёлтый", "красный", "белый"]
-        ),
-        ChoiceSet(
-            title="Бородка",
-            data=["есть", "нет"]
-        )
-    ]
+    useful_trait = ChoiceSet(
+        title=useful_title,
+        data=useful_data
+    )
 
-    length: int = 8
-    width: int = 5
-    pos = [0, int(width / 2)]
+    useless_traits = []
+    for useless_title, useless_datum in zip(useless_titles, useless_data) :
+        useless_traits.append(ChoiceSet(title=useless_title, data=useless_datum))
 
     head = ""
 
@@ -158,9 +183,11 @@ if __name__ == '__main__':
         print("Выберите действие (Enter - пойти в случайную сторону, 0 - пойти вперёд, 1 - заново, 2 - завершить)")
         action = input()
 
-        direction = ""
+        direction = "Что-то пошло не так..."
         if action == "0" :
             direction = "Вперёд"
+        else :
+            direction = directions.choose(banned_directions)
 
         if action == "1" :
             pos = [0, int(width / 2)]
@@ -172,9 +199,6 @@ if __name__ == '__main__':
         if action == "2" :
             print("Завершаем программу...")
             exit()
-
-        if action != "0":
-            direction = directions.choose(banned_directions)
 
         print(f"Направление: {direction}")
 
