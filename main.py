@@ -173,6 +173,7 @@ if __name__ == '__main__':
 
         if pos[Axis.Y] == length - 1 :
             print("Ты победил!")
+            input()
             break
 
         banned_directions = []
