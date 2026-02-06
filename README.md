@@ -1,11 +1,11 @@
 Фиксация зависимостей:
 ```commandline
- pip freeze > requirements.txt
+pip freeze > requirements.txt
 ```
 
 Создание исполнительного файла:
 ```commandline
-pyinstaller --onefile --console --clean --name dnd_tiles --icon assets/icon.ico main.py
+pyinstaller --onefile --console --clean --collect-all textual --collect-all rich --name dnd_tiles --icon assets/icon.ico main.py
 ```
 
 Восстановление окружения:

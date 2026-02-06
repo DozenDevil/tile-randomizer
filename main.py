@@ -2,7 +2,11 @@ from dataclasses import dataclass, field
 from random import choice, choices
 from typing import Union, Iterable
 from enum import IntEnum
-import tomllib
+from tomllib import load
+from textual.app import App, ComposeResult
+from textual.events import Key
+from textual.widgets import Static, Button
+from textual.containers import Vertical, Horizontal
 
 
 class Axis(IntEnum):
@@ -67,7 +71,7 @@ class ChoiceSet:
 def read_config():
     config_name = "config.toml"
     with open(config_name, "rb") as f:
-        config = tomllib.load(f)
+        config = load(f)
 
         length = config["field"]["length"]
         width = config["field"]["width"]
@@ -116,7 +120,9 @@ def flip_direction(right_direction: str):
     
     return wrong_direction
 
-def print_head_text(head_type: str, previous_head_type: str, straight_direction: str, heads: ChoiceSet, useful_trait: ChoiceSet, useless_traits: list[ChoiceSet]):
+def get_head_text(head_type: str, previous_head_type: str, straight_direction: str, heads: ChoiceSet, useful_trait: ChoiceSet, useless_traits: list[ChoiceSet]):
+    head_text = ""
+
     head_type_text = "Что-то пошло не так..."
     if head_type == "Правда":
         head_type_text = "правды"
@@ -128,90 +134,137 @@ def print_head_text(head_type: str, previous_head_type: str, straight_direction:
     is_lying = determine_honesty(head_type, previous_head_type)
     direction_text = flip_direction(straight_direction) if is_lying else straight_direction
 
-    print(f"Голова ({head_type_text}) говорит: \"{direction_text}!\"\n"
-          f"Описание:\n"
-          f"{useful_trait.get_title()} - {useful_trait.get_option(heads.get_index(head_type))}")
+    head_text += f"Голова ({head_type_text}) говорит: \"{direction_text}!\"\n\n"
+    head_text += f"Описание:\n"
+    head_text += f"{useful_trait.get_title()} - {useful_trait.get_option(heads.get_index(head_type))}\n"
 
     for trait in useless_traits:
-        print(f"{trait.get_title()} - {trait.choose()}")
+        head_text += f"{trait.get_title()} - {trait.choose()}\n"
 
-    print()
+    return head_text
+
+@dataclass
+class GameState:
+    pos: list[int]
+    head: str
+    width: int
+    length: int
+    last_head: str
+
+
+class PuzzleApp(App):
+    def on_mount(self) -> None:
+        self.heads = ChoiceSet(
+            title="Головы",
+            data=["Правда", "Ложь", "Повтор"]
+        )
+
+        length, width, directions_data, useful_title, useful_data, useless_titles, useless_data = read_config()
+
+        self.directions = ChoiceSet(
+            title="Направление движения",
+            data=directions_data
+        )
+
+        self.useful_trait = ChoiceSet(
+            title=useful_title,
+            data=useful_data
+        )
+
+        self.useless_traits = [
+            ChoiceSet(title=t, data=d) for t, d in zip(useless_titles, useless_data)
+        ]
+
+        self.state = GameState(
+            pos=[0, width // 2],
+            head="",
+            width=width,
+            length=length,
+            last_head=""
+        )
+
+        self.text = self.get_coords()
+        self.status.update(self.text)
+
+    def get_coords(self):
+        return f"Координаты: ({self.state.pos[Axis.Y]},{self.state.pos[Axis.X]})\n\n"
+
+    def make_step(self, forced: str | None = None) -> None:
+        state = self.state
+        heads = self.heads
+        directions = self.directions
+        useful_trait = self.useful_trait
+        useless_traits = self.useless_traits
+
+        banned = []
+        if state.pos[Axis.Y] - 1 < 0: banned.append("Назад")
+        if state.pos[Axis.X] - 1 < 0: banned.append("Влево")
+        if state.pos[Axis.X] + 1 > state.width - 1: banned.append("Вправо")
+
+        direction = forced if forced is not None else directions.choose(banned)
+
+        moves = {"Вперёд": (1, 0), "Назад": (-1, 0), "Влево": (0, -1), "Вправо": (0, 1)}
+        dy, dx = moves.get(direction, (0, 0))
+        state.pos[Axis.Y] += dy
+        state.pos[Axis.X] += dx
+
+        state.last_head = state.head
+        state.head = heads.choose(exclude="Повтор") if state.last_head == "" else heads.choose()
+
+        self.text = self.get_coords()
+        self.text += get_head_text(
+            state.head, state.last_head, direction,
+            heads, useful_trait, useless_traits
+        )
+        self.status.update(self.text)
+
+    def check_victory(self):
+        state = self.state
+        if state.pos[Axis.Y] == state.length - 1:
+            self.status.update("[bold green]Победа![/bold green]\nНажми любую клавишу для выхода")
+            self.waiting_for_exit = True
+
+    def compose(self) -> ComposeResult:
+        with Vertical():
+            self.status = Static("")
+            yield self.status
+
+            with Horizontal():
+                yield Button("Шаг (случайный)\nПробел", id="step_random")
+                yield Button("Шаг вперёд\n↑", id="step_forward")
+                yield Button("Перезапуск\nR", id="restart")
+                yield Button("Выход\nQ", id="quit")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if getattr(self, "waiting_for_exit", False):
+            self.exit()
+        else :
+            if event.button.id == "step_random":
+                self.make_step()
+                self.check_victory()
+            elif event.button.id == "step_forward":
+                self.make_step(forced="Вперёд")
+                self.check_victory()
+            elif event.button.id == "restart":
+                self.on_mount()
+            elif event.button.id == "quit":
+                self.exit()
+
+    def on_key(self, event: Key) -> None:
+        if getattr(self, "waiting_for_exit", False):
+            self.exit()
+            return
+        elif event.key == "space":
+            self.make_step()
+            self.check_victory()
+        elif event.key == "up":
+            self.make_step(forced="Вперёд")
+            self.check_victory()
+        elif event.key.lower() == "r":
+            self.on_mount()
+        elif event.key.lower() == "q":
+            self.exit()
+
 
 if __name__ == '__main__':
-    heads = ChoiceSet(
-        title="Головы",
-        data=["Правда", "Ложь", "Повтор"]
-    )
-
-    length: int
-    width: int
-
-    length, width, directions_data, useful_title, useful_data, useless_titles, useless_data = read_config()
-
-    print(f"Размер поля: {length}x{width}\n")
-
-    pos = [0, int(width / 2)]
-
-    directions = ChoiceSet(
-        title="Направление движения",
-        data=directions_data
-    )
-
-    useful_trait = ChoiceSet(
-        title=useful_title,
-        data=useful_data
-    )
-
-    useless_traits = []
-    for useless_title, useless_datum in zip(useless_titles, useless_data) :
-        useless_traits.append(ChoiceSet(title=useless_title, data=useless_datum))
-
-    head = ""
-
-    while True :
-        print(f"Координаты: Y = {pos[Axis.Y]}, X = {pos[Axis.X]}")
-
-        if pos[Axis.Y] == length - 1 :
-            print("Ты победил!")
-            input()
-            break
-
-        banned_directions = []
-        if pos[Axis.Y] - 1 < 0 : banned_directions.append("Назад")
-        if pos[Axis.X] - 1 < 0 : banned_directions.append("Влево")
-        if pos[Axis.X] + 1 > width - 1 : banned_directions.append("Вправо")
-
-        print("Выберите действие (Enter - пойти в случайную сторону, 0 - пойти вперёд, 1 - заново, 2 - завершить)")
-        action = input()
-
-        direction = "Что-то пошло не так..."
-        if action == "0" :
-            direction = "Вперёд"
-        else :
-            direction = directions.choose(banned_directions)
-
-        if action == "1" :
-            pos = [0, int(width / 2)]
-            head = ""
-            print("Начинаем сначала...")
-            print()
-            continue
-
-        if action == "2" :
-            print("Завершаем программу...")
-            exit()
-
-        print(f"Направление: {direction}")
-
-        if direction == "Вперёд" : pos[Axis.Y] += 1
-        if direction == "Назад": pos[Axis.Y] -= 1
-        if direction == "Влево": pos[Axis.X] -= 1
-        if direction == "Вправо": pos[Axis.X] += 1
-
-        last_head = head
-        if last_head == "" :
-            head = heads.choose(exclude="Повтор")
-        else :
-            head = heads.choose()
-        
-        print_head_text(head, last_head, direction, heads, useful_trait, useless_traits)
+    PuzzleApp().run()
