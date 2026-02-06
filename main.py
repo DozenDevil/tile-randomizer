@@ -146,10 +146,21 @@ def get_head_text(head_type: str, previous_head_type: str, straight_direction: s
 @dataclass
 class GameState:
     pos: list[int]
-    head: str
+    next_pos: list[int]
+    head: str | None
     width: int
     length: int
-    last_head: str
+
+def translate_direction(dir_eng:str):
+    dirs = {
+        "shift+up": "Вверх",
+        "shift+down": "Вниз",
+        "left": "Влево",
+        "right": "Вправо",
+        "up": "Вперёд",
+        "down": "Назад"
+    }
+    return dirs[dir_eng]
 
 
 class PuzzleApp(App):
@@ -177,17 +188,20 @@ class PuzzleApp(App):
 
         self.state = GameState(
             pos=[0, width // 2],
-            head="",
+            next_pos=[0, width // 2],
+            head=None,
             width=width,
             length=length,
-            last_head=""
         )
 
         self.text = self.get_coords()
         self.status.update(self.text)
 
     def get_coords(self):
-        return f"Координаты: ({self.state.pos[Axis.Y]},{self.state.pos[Axis.X]})\n\n"
+        return f"Координаты: ({self.state.pos[Axis.Y]},{self.state.pos[Axis.X]})\n"
+
+    def get_next_coords(self):
+        return f"Следующие координаты: ({self.state.next_pos[Axis.Y]},{self.state.next_pos[Axis.X]})\n\n"
 
     def make_step(self, forced: str | None = None) -> None:
         state = self.state
@@ -196,27 +210,35 @@ class PuzzleApp(App):
         useful_trait = self.useful_trait
         useless_traits = self.useless_traits
 
+        self.text = self.get_coords()
+        state.pos = state.next_pos
+        self.check_victory()
+        if getattr(self, "waiting_for_exit", False): return
+
         banned = []
         if state.pos[Axis.Y] - 1 < 0: banned.append("Назад")
+        if state.pos[Axis.Y] + 1 > state.length: banned.append("Вперёд")
         if state.pos[Axis.X] - 1 < 0: banned.append("Влево")
         if state.pos[Axis.X] + 1 > state.width - 1: banned.append("Вправо")
 
-        direction = forced if forced is not None else directions.choose(banned)
+        if forced not in banned:
+            direction = forced if forced is not None else directions.choose(banned)
 
-        moves = {"Вперёд": (1, 0), "Назад": (-1, 0), "Влево": (0, -1), "Вправо": (0, 1)}
-        dy, dx = moves.get(direction, (0, 0))
-        state.pos[Axis.Y] += dy
-        state.pos[Axis.X] += dx
+            moves = {"Вперёд": (1, 0), "Назад": (-1, 0), "Влево": (0, -1), "Вправо": (0, 1)}
+            dy, dx = moves.get(direction, (0, 0))
+            state.next_pos[Axis.Y] += dy
+            state.next_pos[Axis.X] += dx
 
-        state.last_head = state.head
-        state.head = heads.choose(exclude="Повтор") if state.last_head == "" else heads.choose()
+            state.head = heads.choose(exclude=["Повтор"]) if state.head is None else heads.choose()
+            last_head = state.head
 
-        self.text = self.get_coords()
-        self.text += get_head_text(
-            state.head, state.last_head, direction,
-            heads, useful_trait, useless_traits
-        )
-        self.status.update(self.text)
+            self.text += self.get_next_coords()
+            self.text += f"Направление: {direction}\n"
+            self.text += get_head_text(
+                state.head, last_head, direction,
+                heads, useful_trait, useless_traits
+            )
+            self.status.update(self.text)
 
     def check_victory(self):
         state = self.state
@@ -229,22 +251,30 @@ class PuzzleApp(App):
             self.status = Static("")
             yield self.status
 
-            with Horizontal():
-                yield Button("Шаг (случайный)\nПробел", id="step_random")
-                yield Button("Шаг вперёд\n↑", id="step_forward")
-                yield Button("Перезапуск\nR", id="restart")
-                yield Button("Выход\nQ", id="quit")
+            with Vertical():
+                with Horizontal():
+                    yield Button("Вверх\nShift + ↑", id="step_shift_plus_up")
+                    yield Button("Вперёд\n↑", id="step_up")
+                    yield Button("Перезапуск\nR", id="restart")
+                with Horizontal():
+                    yield Button("Влево\n←", id="step_left")
+                    yield Button("Случайный шаг\nПробел", id="random_step")
+                    yield Button("Вправо\n→", id="step_right")
+                with Horizontal():
+                    yield Button("Вниз\nShift + ↓", id="step_shift_plus_down")
+                    yield Button("Назад\n↓", id="step_down")
+                    yield Button("Выход\nQ", id="quit")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if getattr(self, "waiting_for_exit", False):
             self.exit()
         else :
-            if event.button.id == "step_random":
+            if event.button.id == "random_step":
                 self.make_step()
-                self.check_victory()
-            elif event.button.id == "step_forward":
-                self.make_step(forced="Вперёд")
-                self.check_victory()
+            elif event.button.id.startswith("step_"):
+                dir = event.button.id.replace("step_", "")
+                dir = dir.replace("_plus_", "+")
+                self.make_step(forced=translate_direction(dir_eng=dir))
             elif event.button.id == "restart":
                 self.on_mount()
             elif event.button.id == "quit":
@@ -256,13 +286,11 @@ class PuzzleApp(App):
             return
         elif event.key == "space":
             self.make_step()
-            self.check_victory()
-        elif event.key == "up":
-            self.make_step(forced="Вперёд")
-            self.check_victory()
-        elif event.key.lower() == "r":
+        elif event.key in {"left", "up", "down", "right", "shift+up", "shift+down"}:
+            self.make_step(forced=translate_direction(dir_eng=event.key))
+        elif event.key.lower() in {"r","к"}:
             self.on_mount()
-        elif event.key.lower() == "q":
+        elif event.key.lower() in {"q", "й"}:
             self.exit()
 
 
