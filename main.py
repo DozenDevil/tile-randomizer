@@ -7,6 +7,11 @@ from textual.app import App, ComposeResult
 from textual.events import Key
 from textual.widgets import Static, Button
 from textual.containers import Vertical, Horizontal
+import sys
+
+if sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 
 class Axis(IntEnum):
@@ -162,6 +167,22 @@ def translate_direction(dir_eng:str):
     }
     return dirs[dir_eng]
 
+def merge_columns(left: str, right: str, gap: int = 4) -> str:
+    left_lines = left.splitlines()
+    right_lines = right.splitlines()
+
+    max_left = max(len(line) for line in left_lines) if left_lines else 0
+    height = max(len(left_lines), len(right_lines))
+
+    left_lines += [""] * (height - len(left_lines))
+    right_lines += [""] * (height - len(right_lines))
+
+    result = []
+    for l, r in zip(left_lines, right_lines):
+        result.append(l.ljust(max_left) + " " * gap + r)
+
+    return "\n".join(result)
+
 
 class PuzzleApp(App):
     def on_mount(self) -> None:
@@ -195,13 +216,39 @@ class PuzzleApp(App):
         )
 
         self.text = self.get_coords()
-        self.status.update(self.text)
+        self.field_text = self.get_field(self.state)
+
+        text = merge_columns(self.field_text, self.text)
+        self.status.update(text)
+        self.query_one("#random_step", Button).focus()
 
     def get_coords(self):
         return f"Координаты: ({self.state.pos[Axis.Y]},{self.state.pos[Axis.X]})\n"
 
     def get_next_coords(self):
         return f"Следующие координаты: ({self.state.next_pos[Axis.Y]},{self.state.next_pos[Axis.X]})\n\n"
+
+    def get_field(self, field_state: GameState):
+        empty_cell = "□"
+        current_cell = "■"
+        future_cell = "▣"
+
+        result = ""
+
+        for i in range(field_state.length - 1, -1, -1):
+            for j in range(field_state.width):
+                current_symbol = empty_cell
+                if i == field_state.next_pos[Axis.Y] and j == field_state.next_pos[Axis.X]:
+                    current_symbol = future_cell
+                if i == field_state.pos[Axis.Y] and j == field_state.pos[Axis.X]:
+                    current_symbol = current_cell
+
+                result += current_symbol
+
+                if j != field_state.width - 1: result += " "
+            if i != 0: result += "\n"
+
+        return result
 
     def make_step(self, forced: str | None = None) -> None:
         state = self.state
@@ -211,7 +258,7 @@ class PuzzleApp(App):
         useless_traits = self.useless_traits
 
         self.text = self.get_coords()
-        state.pos = state.next_pos
+        state.pos = state.next_pos.copy()
         self.check_victory()
         if getattr(self, "waiting_for_exit", False): return
 
@@ -240,6 +287,10 @@ class PuzzleApp(App):
             )
             self.status.update(self.text)
 
+        self.field_text = self.get_field(self.state)
+        text = merge_columns(self.field_text, self.text)
+        self.status.update(text)
+
     def check_victory(self):
         state = self.state
         if state.pos[Axis.Y] == state.length - 1:
@@ -248,9 +299,9 @@ class PuzzleApp(App):
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            self.status = Static("")
-            yield self.status
-
+            with Horizontal():
+                self.status = Static("")
+                yield self.status
             with Vertical():
                 with Horizontal():
                     yield Button("Вверх\nShift + ↑", id="step_shift_plus_up")
@@ -264,6 +315,7 @@ class PuzzleApp(App):
                     yield Button("Вниз\nShift + ↓", id="step_shift_plus_down")
                     yield Button("Назад\n↓", id="step_down")
                     yield Button("Выход\nQ", id="quit")
+
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if getattr(self, "waiting_for_exit", False):
