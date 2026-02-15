@@ -40,7 +40,7 @@ class ChoiceSet:
         """
         Получить вариант по индексу.
 
-        :param index: индекс варианта
+        :param index: Индекс варианта
         :raises IndexError: если индекс вне диапазона
         """
         if index < 0 or index > len(self.data) - 1:
@@ -55,7 +55,7 @@ class ChoiceSet:
         """
         Получить индекс варианта.
 
-        :param option: значение варианта
+        :param option: Значение варианта
         :return: индекс или -1, если не найден
         """
         options = self.data if isinstance(self.data, (list, tuple)) else list(self.data.values())
@@ -68,7 +68,7 @@ class ChoiceSet:
         """
         Выбрать вариант случайным образом.
 
-        :param exclude: набор исключаемых значений
+        :param exclude: Набор исключаемых значений
         :raises ValueError: если вариантов не осталось
         """
         exclude_set = set(exclude) if exclude else set()
@@ -96,7 +96,7 @@ def read_config():
     """
     Прочитать конфигурацию из файла config.toml.
 
-    :return: параметры игрового поля, направлений и признаков
+    :return: Параметры игрового поля, направлений и признаков
     :raises ValueError: при некорректных данных
     """
     with open("config.toml", "rb") as f:
@@ -160,7 +160,7 @@ def flip_direction(right_direction: str) -> str:
     """
     Инвертировать направление движения.
 
-    :param right_direction: исходное направление
+    :param right_direction: Исходное направление
     """
     mapping = {
         "Вперёд": "Назад",
@@ -177,6 +177,7 @@ def get_head_text(
     head_type: str,
     previous_head_type: str,
     straight_direction: str,
+    banned: list[str],
     heads: ChoiceSet,
     useful_trait: ChoiceSet,
     useless_traits: list[ChoiceSet],
@@ -184,7 +185,7 @@ def get_head_text(
     """
     Сформировать текст реплики головы.
 
-    :return: многострочный текст описания
+    :return: Многострочный текст описания
     """
     head_type_text = {
         "Правда": "правды",
@@ -193,11 +194,14 @@ def get_head_text(
     }.get(head_type, "неизвестно")
 
     is_lying = determine_honesty(head_type, previous_head_type)
-    direction_text = (
-        flip_direction(straight_direction)
-        if is_lying
-        else straight_direction
-    )
+
+    if is_lying:
+        candidate = flip_direction(straight_direction)
+        direction_text = (
+            candidate if candidate not in banned else "Выйди за поле"
+        )
+    else:
+        direction_text = straight_direction
 
     text = (
         f"Голова ({head_type_text}) говорит: "
@@ -241,7 +245,7 @@ def merge_columns(left: str, right: str, gap: int = 4) -> str:
     """
     Объединить два текстовых блока в колонки.
 
-    :param gap: количество пробелов между колонками
+    :param gap: Количество пробелов между колонками
     """
     left_lines = left.splitlines()
     right_lines = right.splitlines()
@@ -342,7 +346,7 @@ class PuzzleApp(App):
         banned = []
         if state.pos[Axis.Y] - 1 < 0:
             banned.append("Назад")
-        if state.pos[Axis.Y] + 1 > state.length:
+        if state.pos[Axis.Y] + 1 > state.length - 1:
             banned.append("Вперёд")
         if state.pos[Axis.X] - 1 < 0:
             banned.append("Влево")
@@ -350,6 +354,24 @@ class PuzzleApp(App):
             banned.append("Вправо")
 
         if forced not in banned:
+            previous_head = state.head
+
+            state.head = (
+                self.heads.choose(exclude=["Повтор"])
+                if state.head is None
+                else self.heads.choose()
+            )
+
+            if state.head == "Ложь" or (state.head == "Повтор" and previous_head == "Ложь") :
+                if state.pos[Axis.Y] - 1 < 0:
+                    banned.append("Вперёд")
+                if state.pos[Axis.Y] + 1 > state.length - 1:
+                    banned.append("Назад")
+                if state.pos[Axis.X] - 1 < 0:
+                    banned.append("Вправо")
+                if state.pos[Axis.X] + 1 > state.width - 1:
+                    banned.append("Влево")
+
             direction = forced or self.directions.choose(banned)
             dy, dx = {
                 "Вперёд": (1, 0),
@@ -361,18 +383,13 @@ class PuzzleApp(App):
             state.next_pos[Axis.Y] += dy
             state.next_pos[Axis.X] += dx
 
-            state.head = (
-                self.heads.choose(exclude=["Повтор"])
-                if state.head is None
-                else self.heads.choose()
-            )
-
             self.text += self.get_next_coords()
             self.text += f"Направление: {direction}\n"
             self.text += get_head_text(
                 state.head,
-                state.head,
+                previous_head,
                 direction,
+                banned,
                 self.heads,
                 self.useful_trait,
                 self.useless_traits,
